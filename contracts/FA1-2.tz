@@ -1,0 +1,322 @@
+parameter
+  (or (or (pair :transfer (address %from) (pair (address %to) (nat %value)))
+          (pair :approve (address %spender) (nat %value)))
+      (or (pair %getAllowance (pair (address :owner) (address :spender)) (contract nat))
+          (or (pair %getBalance (address :owner) (contract nat))
+              (pair %getTotalSupply unit (contract nat))))) ;
+storage
+  (pair (big_map %ledger
+           (address :owner)
+           (pair (nat :balance) (map :allowances (address :spender) (nat :value))))
+        (nat %totalSupply)) ;
+code {
+    UNPAIR ;
+    IF_LEFT
+        {
+            IF_LEFT
+                {
+                    ## %transfer branch
+                    UNPAPAIR;
+                    ## gets ledger
+                    DIP 3 { UNPAIR } ;
+                    DIG 3 ;
+                    ## checks if from is in ledger
+                    DIP { DUP } ;
+                    DUP ;
+                    DIG 3 ;
+                    MEM ;
+                    IF
+                        {
+                            ## checks if from has enough balance
+                            DIP { DUP } ;
+                            DUP ;
+                            DIG 3 ;
+                            GET ;
+                            IF_NONE
+                                { PUSH string "NoValue" ; FAILWITH }
+                                {
+                                    UNPAIR ;
+                                    DIP 5 { DUP } ;
+                                    DUP ;
+                                    DIG 6 ;
+                                    IFCMPGT
+                                        {
+                                            ## if transfer value is greater than balance
+                                            PUSH string "NotEnoughBalance" ; FAILWITH
+                                        }
+                                        {
+                                            ## checks if from address is allowed to make the transfer
+                                            DIP 3 { DUP } ;
+                                            DIG 3 ;
+                                            SENDER ;
+                                            IFCMPEQ
+                                                {}
+                                                {
+                                                    ## checks if sender has been approved for the transfer
+                                                    DIP { DUP } ;
+                                                    SWAP ;
+                                                    SENDER ;
+                                                    GET ;
+                                                    IF_NONE
+                                                        { PUSH string "NotEnoughAllowance" ; FAILWITH }
+                                                        {
+                                                            ## if sender is allowed, checks allowance
+                                                            DIP 6 { DUP } ;
+                                                            DIG 6 ;
+                                                            IFCMPGT
+                                                                {
+                                                                    ## if value exceeds allowance
+                                                                    PUSH string "NotEnoughAllowance" ; FAILWITH
+                                                                }
+                                                                {}
+                                                        } ;
+                                                } ;
+                                                ## proceeds with transfer
+                                                ## updates from balance
+                                                DIP 5 { DUP } ;
+                                                DIG 5 ;
+                                                SWAP ;
+                                                SUB ;
+                                                ABS ;
+                                                PAIR ;
+                                                DIG 2 ;
+                                                DUP ;
+                                                DUG 5 ;
+                                                DIP { SOME } ;
+                                                UPDATE ;
+                                                ## updates to address in ledger
+                                                DIP 1 { DUP } ;
+                                                DIG 1 ;
+                                                DIP { DUP } ;
+                                                DIP 4 { DUP } ;
+                                                MEM ;
+                                                IF
+                                                    {
+                                                        ## if to address is ledger
+                                                        ## value must be added to balance
+                                                        DIP { DUP } ;
+                                                        SWAP ;
+                                                        DIP { DUP } ;
+                                                        GET ;
+                                                        IF_NONE
+                                                            {
+                                                                PUSH string "NOVALUE" ; FAILWITH
+                                                            }
+                                                            {
+                                                                UNPAIR ;
+                                                                DIG 4 ;
+                                                                ADD ;
+                                                                PAIR ;
+                                                                SOME ;
+                                                                DIG 2 ;
+                                                                UPDATE ;
+                                                            } ;
+                                                    }
+                                                    {
+                                                        ## if to address is not in ledger
+                                                        ## new key/value pair is created with balance
+                                                        DUG 2 ;
+                                                        DIP { PUSH (map address nat) {} ; SWAP ; PAIR ; SOME } ;
+                                                        UPDATE ;
+                                                    } ;
+                                                ## updates allowance
+                                                DIP { SWAP } ;
+                                                SWAP ;
+                                                DUP ;
+                                                SENDER ;
+                                                IFCMPEQ
+                                                    {
+                                                        ## Stack cleanup
+                                                        SWAP ;
+                                                        DIP { DROP ; DROP } ;
+                                                    }
+                                                    {
+                                                        ## if sender is not owner
+                                                        ## gets owner's allowances
+                                                        SWAP ;
+                                                        DUP ;
+                                                        DIP 2 { DUP } ;
+                                                        DIG 2 ;
+                                                        GET ;
+                                                        IF_NONE
+                                                            { PUSH string "NoValue" ; FAILWITH }
+                                                            {
+                                                                UNPAIR ;
+                                                                DUG 4 ;
+                                                                DUP ;
+                                                                DIP { SWAP } ;
+                                                                SENDER ;
+                                                                GET ;
+                                                                IF_NONE
+                                                                    { PUSH string "NoValue" ; FAILWITH }
+                                                                    {
+                                                                        DIG 4 ;
+                                                                        SWAP ;
+                                                                        SUB ;
+                                                                        ABS ;
+                                                                        DIP { SWAP } ;
+                                                                        SENDER ;
+                                                                        DIP { SOME } ;
+                                                                        UPDATE ; ## updates approvals map
+                                                                        DIG 3 ;
+                                                                        PAIR ;
+                                                                        DIG 2 ;
+                                                                        DIP { SOME } ;
+                                                                        UPDATE ;
+                                                                    }
+                                                            }
+                                                    } ;
+                                                    PAIR ;
+                                        } ;
+                                } ;
+                        }
+                        { PUSH string "NoAccount" ; FAILWITH } ;
+
+                }
+                {
+                    ## %approve branch
+                    SWAP ;
+                    UNPAIR ;
+                    DIP { SWAP } ;
+                    DIP { DUP } ;
+                    SWAP ;
+                    CAR ;
+                    SENDER ;
+                    IFCMPEQ
+                        { PUSH string "IdenticalSpenderSender" ; FAILWITH }
+                        {} ;
+                    DUP ;
+                    SENDER ;
+                    GET ;
+                    IF_NONE
+                        { PUSH string "NoAccount" ; FAILWITH }
+                        {
+                            UNPAIR ;
+                            DUG 3 ;
+                            DIG 2 ;
+                            UNPAIR ;
+                            ## gets current allowance
+                            DIP { SWAP ; DUP } ;
+                            DUP ;
+                            DIP { SWAP } ;
+                            GET ;
+                            IF_NONE
+                                {
+                                    ## if there is no approved amount yet
+                                    DIP { SWAP } ;
+                                    DIP { SOME } ;
+                                    UPDATE ;
+                                    DIG 2 ;
+                                    PAIR ;
+                                    SOME ;
+                                    SENDER ;
+                                    UPDATE ;
+                                }
+                                {
+                                    ## if there is an approved amount
+                                    INT ;
+                                    EQ ;
+                                    IF
+                                        {
+                                            ## if approved amount is equal to zero
+                                            DIP { SWAP ; SOME } ;
+                                            UPDATE ;
+                                            DIG 2 ;
+                                            PAIR ;
+                                            SOME ;
+                                            SENDER ;
+                                            UPDATE ;
+                                        }
+                                        {
+                                            ## if approved amount is greater than zero
+                                            ## new approved amount must be zero
+                                            DIG 2 ;
+                                            INT ;
+                                            EQ ;
+                                            IF
+                                                {
+                                                    ## sets approved amount to zero
+                                                    PUSH nat 0 ;
+                                                    SOME ;
+                                                    SWAP ;
+                                                    UPDATE ;
+                                                    DIG 2 ;
+                                                    PAIR ;
+                                                    SOME ;
+                                                    SENDER ;
+                                                    UPDATE ;
+                                                }
+                                                {
+                                                    ## throws error
+                                                    PUSH string "UnsafeAllowanceChange" ;
+                                                    FAILWITH ;
+                                                }
+                                        }
+                                }
+                        } ;
+                        PAIR ;
+                } ;
+                NIL operation ;
+                PAIR ;
+        }
+        {
+            IF_LEFT
+                {
+                    ## %getAllowance branch
+                    DIP { DUP ; CAR } ;
+                    UNPPAIIR ;
+                    DIP { DIG 2 } ;
+                    GET ;
+                    IF_NONE
+                        { PUSH string "NoAccount" ; FAILWITH }
+                        {
+                            CDR ;
+                            SWAP ;
+                            GET ;
+                            IF_NONE
+                                { PUSH string "NoAllowance" ; FAILWITH }
+                                {
+                                    DIP { PUSH mutez 0 } ;
+                                    TRANSFER_TOKENS ;
+                                    NIL operation ;
+                                    SWAP ;
+                                    CONS ;
+                                    PAIR
+                                }
+                        }
+                }
+                {
+                    IF_LEFT
+                        {
+                            ##getBalance branch
+                            DIP { DUP ; CAR } ;
+                            UNPAIR ;
+                            DIP { SWAP } ;
+                            GET ;
+                            IF_NONE
+                                { PUSH string "NoAllowance" ; FAILWITH }
+                                {
+                                    CAR ;
+                                    DIP { PUSH mutez 0 } ;
+                                    TRANSFER_TOKENS ;
+                                    NIL operation ;
+                                    SWAP ;
+                                    CONS ;
+                                    PAIR
+                                }
+                        }
+                        {
+                            ## %getTotalSupply branch
+                            CDR ;
+                            DIP { DUP ; CDR } ;
+                            SWAP ;
+                            DIP { PUSH mutez 0 } ;
+                            TRANSFER_TOKENS ;
+                            NIL operation ;
+                            SWAP ;
+                            CONS ;
+                            PAIR
+                        } ;
+                } ;
+        } ;
+}
