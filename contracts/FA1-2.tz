@@ -209,8 +209,6 @@ code {
                                     DIG 2 ;
                                     PAIR ;
                                     SOME ;
-                                    SENDER ;
-                                    UPDATE ;
                                 }
                                 {
                                     ## if there is an approved amount
@@ -224,8 +222,6 @@ code {
                                             DIG 2 ;
                                             PAIR ;
                                             SOME ;
-                                            SENDER ;
-                                            UPDATE ;
                                         }
                                         {
                                             ## if approved amount is greater than zero
@@ -243,8 +239,6 @@ code {
                                                     DIG 2 ;
                                                     PAIR ;
                                                     SOME ;
-                                                    SENDER ;
-                                                    UPDATE ;
                                                 }
                                                 {
                                                     ## throws error
@@ -252,7 +246,9 @@ code {
                                                     FAILWITH ;
                                                 }
                                         }
-                                }
+                                } ;
+                                SENDER ;
+                                UPDATE ;
                         } ;
                         PAIR ;
                 } ;
